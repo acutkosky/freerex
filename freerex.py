@@ -82,13 +82,13 @@ class OptimizerWithAggregates(Optimizer):
 
 class FreeRexDiag(Optimizer):
     '''diagonal FreeExp Learner (does coordinate-wise updates ala adagrad'''
-    def __init__(self, k=1.0/np.sqrt(5), set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRex'):
+    def __init__(self, k_inv=1.0, set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRex'):
         '''
         constructs a new freerex optimizer
         '''
         super(FreeRexDiag, self).__init__(use_locking, name)
         self._epsilon = epsilon
-        self._k = k
+        self._k_inv = k_inv
         self._set_scaling = set_scaling
 
 
@@ -164,7 +164,7 @@ class FreeRexDiag(Optimizer):
         scalings_update = tf.minimum(scalings, max_grad_norm_update/tf.reduce_sum(L_update))
 
         offset_update = -tf.sign(gradients_sum_update) * log_scaling * scalings_update\
-            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k
+            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k_inv
             * tf.abs(gradients_sum_update)) - 1.0)
 
         var_update = var + offset_update - offset
@@ -207,17 +207,15 @@ class FreeRexDiag(Optimizer):
 
 class FreeRexSphere(OptimizerWithAggregates):
     '''FreeExp Learner that uses a full L2 update'''
-    def __init__(self, k=1.0/np.sqrt(5), epsilon=1e-8, use_locking=False, name='FreeRex'):
+    def __init__(self, k_inv=1.0/np.sqrt(5), epsilon=1e-8, use_locking=False, name='FreeRex'):
         '''
         constructs a new freerex optimizer
         '''
         super(FreeRexSphere, self).__init__(use_locking, name)
         self._epsilon = epsilon
-        self._k = k
+        self._k_inv = k_inv
         self._inverse_eta_squared = tf.Variable(self._epsilon**2)
         self._old_total_grad_sq_sum = None
-        self._k_t = None
-        self._epsilon_t = None
         self._L = tf.Variable(epsilon)
         self._log_scaling = tf.Variable(1.0)
         self._log_scaling_update = None
@@ -242,10 +240,6 @@ class FreeRexSphere(OptimizerWithAggregates):
             self._get_or_make_slot(v, inverse_eta_squared, "inverse_eta_squared", self._name)
             self._get_or_make_slot(v, offset, "offset", self._name)
             self._get_or_make_slot(v, offset, "last_offset", self._name)
-
-    def _prepare(self):
-        self._k_t = constant_op.constant(self._k)
-        self._epsilon_t = constant_op.constant(self._epsilon)
 
     def _prepare_aggregates(self, grads_and_vars):
         self._grad_norm_squared = constant_op.constant(0.0)
@@ -274,7 +268,7 @@ class FreeRexSphere(OptimizerWithAggregates):
         gradients_sum_update = gradients_sum + grad
         normalized_gradients_sum = gradients_sum_update/(tf.sqrt(self._grad_sum_norm_squared)+self._epsilon)
         offset_update = -normalized_gradients_sum \
-            * (tf.exp(tf.rsqrt(self._inverse_eta_squared_update) * self._k \
+            * (tf.exp(tf.rsqrt(self._inverse_eta_squared_update) * self._k_inv \
                       * tf.sqrt(self._grad_sum_norm_squared)) - 1.0)
 
         var_update = var + offset_update - offset
@@ -299,13 +293,13 @@ class FreeRexSphere(OptimizerWithAggregates):
 
 class FreeRexLayerWise(Optimizer):
     '''FreeExp Learner that works on each tensorflow variable independently.'''
-    def __init__(self, k=1.0/np.sqrt(5), epsilon=1e-6, use_locking=False, name='FreeRex'):
+    def __init__(self, k_inv=1.0/np.sqrt(5), epsilon=1e-6, use_locking=False, name='FreeRex'):
         '''
         constructs a new freerex optimizer
         '''
         super(FreeRexLayerWise, self).__init__(use_locking, name)
         self._epsilon = epsilon
-        self._k = k
+        self._k_inv = k_inv
 
     def _create_slots(self, var_list):
         for v in var_list:
@@ -348,7 +342,7 @@ class FreeRexLayerWise(Optimizer):
                                               gradients_sum_update.get_shape())
 
         offset_update = -normalized_gradients_sum * log_scaling\
-            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k
+            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k_inv
             * tf.sqrt(2*tf.nn.l2_loss(gradients_sum_update))) - 1.0)
 
         var_update = var + offset_update - offset
@@ -376,3 +370,4 @@ class FreeRexLayerWise(Optimizer):
     def _resource_apply_dense(self, grad, handle):
         return self._apply_dense(grad, handle)
 
+FreeRex = FreeRexDiag # Default use is FreeRexDiag
