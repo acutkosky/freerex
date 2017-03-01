@@ -26,103 +26,6 @@ def _get_variable_for(v):
         raise ValueError("Got %s but  could not locate source variable." % (str(v)))
     return v
 
-class FreeRexDiag(Optimizer):
-    '''diagonal FreeExp Learner'''
-    def __init__(self, k=1.0/np.sqrt(5), epsilon=1e-6, use_locking=False, set_scaling=None, name='FreeRex'):
-        '''
-        constructs a new freerex optimizer
-        '''
-        super(FreeRexCW, self).__init__(use_locking, name)
-        self._epsilon = epsilon
-        self._k = k
-        self._set_scaling = set_scaling
-
-    def _create_slots(self, var_list):
-        total_length = np.sum([v.get_shape().num_elements() for v in var_list])
-        for v in var_list:
-            with ops.colocate_with(v):
-                gradients_sum = constant_op.constant(0, 
-                                                     shape=v.get_shape(),
-                                                     dtype=v.dtype.base_dtype)
-                L = constant_op.constant(self._epsilon,
-                                         shape=v.get_shape(),
-                                         dtype=v.dtype.base_dtype)
-
-
-                inverse_eta_squared = constant_op.constant(self._epsilon**2,
-                                                           shape=v.get_shape(),
-                                                           dtype=v.dtype.base_dtype)
-
-                log_scaling = constant_op.constant(1.0,
-                                                   shape=v.get_shape(),
-                                                   dtype=v.dtype.base_dtype)
-                if(self._set_scaling is not None):
-                    scalings = constant_op.constant(self._set_scaling, shape=v.get_shape(), dtype=v.dtype.base_dtype)
-                else:
-                    length = v.get_shape().num_elements()
-                    scalings = constant_op.constant(np.reshape(1.0/length,
-                                                               v.get_shape()),
-                                                    shape=v.get_shape(),
-                                                    dtype=v.dtype.base_dtype)                 
-
-                last_grad = constant_op.constant(0.0, shape=v.get_shape(), dtype=v.dtype.base_dtype)
-
-                offset = constant_op.constant(0.0, shape=v.get_shape(), dtype=v.dtype.base_dtype)
-
-            self._get_or_make_slot(v, gradients_sum, "gradients_sum", self._name)
-            self._get_or_make_slot(v, L, "L", self._name)
-            self._get_or_make_slot(v, inverse_eta_squared, "inverse_eta_squared", self._name)
-            self._get_or_make_slot(v, scalings, "scalings", self._name)
-            self._get_or_make_slot(v, log_scaling, "log_scaling", self._name)
-            self._get_or_make_slot(v, last_grad, "last_grad", self._name)
-            self._get_or_make_slot(v, offset, "offset", self._name)
-
-    def _apply_dense(self, grad, var):
-        gradients_sum = self.get_slot(var, "gradients_sum")
-        L = self.get_slot(var, "L")
-        inverse_eta_squared = self.get_slot(var, "inverse_eta_squared")
-        scalings = self.get_slot(var, "scalings")
-        log_scaling = self.get_slot(var, "log_scaling")
-        offset = self.get_slot(var, "offset")
-
-        gradients_sum_update = gradients_sum + grad
-        L_update = tf.maximum(L, tf.abs(grad))
-
-        inverse_eta_squared_update = tf.maximum(inverse_eta_squared + 2*tf.square(grad), 
-                                                L_update * tf.abs(gradients_sum_update))
-
-        log_scaling_update = tf.minimum(log_scaling, tf.square(L_update)/inverse_eta_squared_update)
-
-        offset_update = -tf.sign(gradients_sum_update) * log_scaling * scalings\
-            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k
-            * tf.abs(gradients_sum_update)) - 1.0)
-
-        var_update = var + offset_update - offset
-
-        gradients_sum_update_op = state_ops.assign(gradients_sum, gradients_sum_update)
-        L_update_op = state_ops.assign(L, L_update)
-        inverse_eta_squared_update_op = state_ops.assign(inverse_eta_squared,
-                                                         inverse_eta_squared_update)
-        log_scaling_update_op = state_ops.assign(log_scaling, log_scaling_update)
-        var_update_op = state_ops.assign(var, var_update)
-        with ops.control_dependencies([var_update_op]):
-            offset_update_op = state_ops.assign(offset, offset_update)
-
-        last_grad_update_op = state_ops.assign(self.get_slot(var, "last_grad"), grad)
-
-        return control_flow_ops.group(*[gradients_sum_update_op,
-                             L_update_op,
-                             inverse_eta_squared_update_op,
-                             log_scaling_update_op,
-                             var_update_op,
-                             offset_update_op,
-                             last_grad_update_op])
-
-    def _apply_sparse(self, grad, var):
-        return self._apply_dense(grad, var)
-
-    def _resource_apply_dense(self, grad, handle):
-        return self._apply_dense(grad, handle)
 
 class OptimizerWithAggregates(Optimizer):
     '''base class for optimizers that need aggregate data from all gradients'''
@@ -160,7 +63,7 @@ class OptimizerWithAggregates(Optimizer):
         with ops.control_dependencies(None):
             self._create_slots([_get_variable_for(v) for v in var_list])
 
-        ##### end copypasta code
+        ##### end copypasta code #####
 
         with ops.name_scope(name, self._name) as name:
             aggregate_op = self._prepare_aggregates(converted_grads_and_vars)
@@ -176,6 +79,131 @@ class OptimizerWithAggregates(Optimizer):
         return apply_updates
 
 
+
+class FreeRexDiag(Optimizer):
+    '''diagonal FreeExp Learner (does coordinate-wise updates ala adagrad'''
+    def __init__(self, k=1.0/np.sqrt(5), set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRex'):
+        '''
+        constructs a new freerex optimizer
+        '''
+        super(FreeRexDiag, self).__init__(use_locking, name)
+        self._epsilon = epsilon
+        self._k = k
+        self._set_scaling = set_scaling
+
+
+    def _create_slots(self, var_list):
+        total_length = np.sum([v.get_shape().num_elements() for v in var_list])
+        for v in var_list:
+            with ops.colocate_with(v):
+                gradients_sum = constant_op.constant(0, 
+                                                     shape=v.get_shape(),
+                                                     dtype=v.dtype.base_dtype)
+                grad_norm_sum = constant_op.constant(self._epsilon, 
+                                                     shape=v.get_shape(),
+                                                     dtype=v.dtype.base_dtype)
+                absolute_regret = constant_op.constant(0, 
+                                                     shape=v.get_shape(),
+                                                     dtype=v.dtype.base_dtype)
+
+                L = constant_op.constant(self._epsilon,
+                                         shape=v.get_shape(),
+                                         dtype=v.dtype.base_dtype)
+
+
+                inverse_eta_squared = constant_op.constant(self._epsilon**2,
+                                                           shape=v.get_shape(),
+                                                           dtype=v.dtype.base_dtype)
+
+                log_scaling = constant_op.constant(1.0,
+                                                   shape=v.get_shape(),
+                                                   dtype=v.dtype.base_dtype)
+                if(self._set_scaling is not None):
+                    scalings = constant_op.constant(self._set_scaling)
+                else:
+                    scalings = constant_op.constant(1.0)
+                max_grad_norm = constant_op.constant(0.0)
+
+                offset = constant_op.constant(0.0, shape=v.get_shape(), dtype=v.dtype.base_dtype)
+
+            self._get_or_make_slot(v, grad_norm_sum, "grad_norm_sum", self._name)
+            self._get_or_make_slot(v, absolute_regret, "absolute_regret", self._name)
+            self._get_or_make_slot(v, gradients_sum, "gradients_sum", self._name)
+            self._get_or_make_slot(v, L, "L", self._name)
+            self._get_or_make_slot(v, inverse_eta_squared, "inverse_eta_squared", self._name)
+            self._get_or_make_slot(v, scalings, "scalings", self._name)
+            self._get_or_make_slot(v, log_scaling, "log_scaling", self._name)
+            self._get_or_make_slot(v, offset, "offset", self._name)
+            self._get_or_make_slot(v, max_grad_norm, "max_grad_norm", self._name)
+
+    def _apply_dense(self, grad, var):
+        gradients_sum = self.get_slot(var, "gradients_sum")
+        L = self.get_slot(var, "L")
+        inverse_eta_squared = self.get_slot(var, "inverse_eta_squared")
+        scalings = self.get_slot(var, "scalings")
+        log_scaling = self.get_slot(var, "log_scaling")
+        offset = self.get_slot(var, "offset")
+        grad_norm_sum = self.get_slot(var, "grad_norm_sum")
+        absolute_regret = self.get_slot(var, "absolute_regret")
+        max_grad_norm = self.get_slot(var, "max_grad_norm")
+
+
+        gradients_sum_update = gradients_sum + grad
+        L_update = tf.maximum(L, tf.abs(grad))
+
+        max_grad_norm_update = tf.maximum(max_grad_norm, tf.norm(grad))
+
+        inverse_eta_squared_update = tf.maximum(inverse_eta_squared + 2*tf.square(grad), 
+                                                L_update * tf.abs(gradients_sum_update))
+
+        log_scaling_update = tf.minimum(log_scaling, tf.square(L_update)/inverse_eta_squared_update)
+
+        absolute_regret_update = absolute_regret + tf.abs(offset*grad)
+        grad_norm_sum_update = grad_norm_sum + tf.abs(grad)
+
+        scalings_update = tf.minimum(scalings, max_grad_norm_update/tf.reduce_sum(L_update))
+
+        offset_update = -tf.sign(gradients_sum_update) * log_scaling * scalings_update\
+            * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k
+            * tf.abs(gradients_sum_update)) - 1.0)
+
+        var_update = var + offset_update - offset
+
+        gradients_sum_update_op = state_ops.assign(gradients_sum, gradients_sum_update)
+        L_update_op = state_ops.assign(L, L_update)
+        inverse_eta_squared_update_op = state_ops.assign(inverse_eta_squared,
+                                                         inverse_eta_squared_update)
+        log_scaling_update_op = state_ops.assign(log_scaling, log_scaling_update)
+        var_update_op = state_ops.assign(var, var_update)
+
+        absolute_regret_update_op = state_ops.assign(absolute_regret, absolute_regret_update)
+        grad_norm_sum_update_op = state_ops.assign(grad_norm_sum, grad_norm_sum_update)
+
+        scalings_update_op = state_ops.assign(scalings, scalings_update)
+
+        max_grad_norm_update_op = state_ops.assign(max_grad_norm, max_grad_norm_update)
+
+        with ops.control_dependencies([var_update_op]):
+            offset_update_op = state_ops.assign(offset, offset_update)
+            absolute_regret_update_op = state_ops.assign(absolute_regret, absolute_regret_update)
+            grad_norm_sum_update_op = state_ops.assign(grad_norm_sum, grad_norm_sum_update)
+
+        return control_flow_ops.group(*[gradients_sum_update_op,
+                             L_update_op,
+                             inverse_eta_squared_update_op,
+                             log_scaling_update_op,
+                             var_update_op,
+                             offset_update_op,
+                             absolute_regret_update_op,
+                             grad_norm_sum_update_op,
+                             scalings_update_op,
+                             max_grad_norm_update_op])
+
+    def _apply_sparse(self, grad, var):
+        return self._apply_dense(grad, var)
+
+    def _resource_apply_dense(self, grad, handle):
+        return self._apply_dense(grad, handle)
 
 class FreeRexSphere(OptimizerWithAggregates):
     '''FreeExp Learner that uses a full L2 update'''
@@ -270,7 +298,7 @@ class FreeRexSphere(OptimizerWithAggregates):
 
 
 class FreeRexLayerWise(Optimizer):
-    '''FreeExp Learner that works on each tensorflow variable independently'''
+    '''FreeExp Learner that works on each tensorflow variable independently.'''
     def __init__(self, k=1.0/np.sqrt(5), epsilon=1e-6, use_locking=False, name='FreeRex'):
         '''
         constructs a new freerex optimizer
