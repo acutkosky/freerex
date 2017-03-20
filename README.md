@@ -3,7 +3,7 @@ very adaptive optimizers in tensorflow
 
 Three optimizers that provably achieve optimal convergence rates with no prior information about the data.
 
-`FreeRexDiag` is a coordinate-wise optimizer (similar to AdaGrad)
+`FreeRexDiag` is a coordinate-wise optimizer (this is probably the best default algorithm)
 
 `FreeRexSphere` uses an L2 update for dimension-independence (good for high-dimensional problems)
 
