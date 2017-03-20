@@ -1,1 +1,1 @@
-import freerex
+from freerex import *
