@@ -14,7 +14,7 @@ from aggregate_optimizers import OptimizerWithAggregates
 
 class FreeRexDiag(Optimizer):
     '''diagonal FreeExp Learner (does coordinate-wise updates ala adagrad'''
-    def __init__(self, k_inv=1.0, set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRexDiag'):
+    def __init__(self, k_inv=1.0, log_scaling=True, set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRexDiag'):
         '''
         constructs a new freerex optimizer
         '''
@@ -22,6 +22,7 @@ class FreeRexDiag(Optimizer):
         self._epsilon = epsilon
         self._k_inv = k_inv
         self._set_scaling = set_scaling
+        self._log_scaling = log_scaling
 
 
     def _create_slots(self, var_list):
@@ -88,14 +89,17 @@ class FreeRexDiag(Optimizer):
         inverse_eta_squared_update = tf.maximum(inverse_eta_squared + 2*tf.square(grad), 
                                                 L_update * tf.abs(gradients_sum_update))
 
-        log_scaling_update = tf.minimum(log_scaling, tf.square(L_update)/inverse_eta_squared_update)
+        if self._log_scaling:
+            log_scaling_update = tf.minimum(log_scaling, tf.square(L_update)/inverse_eta_squared_update)
+        else:
+            log_scaling_update = log_scaling
 
         absolute_regret_update = absolute_regret + tf.abs(offset*grad)
         grad_norm_sum_update = grad_norm_sum + tf.abs(grad)
 
         scalings_update = tf.minimum(scalings, max_grad_norm_update/tf.reduce_sum(L_update))
 
-        offset_update = -tf.sign(gradients_sum_update) * log_scaling * scalings_update\
+        offset_update = -tf.sign(gradients_sum_update) * log_scaling_update * scalings_update\
             * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k_inv
             * tf.abs(gradients_sum_update)) - 1.0)
 
