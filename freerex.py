@@ -14,7 +14,7 @@ from aggregate_optimizers import OptimizerWithAggregates
 
 class FreeRexDiag(Optimizer):
     '''diagonal FreeExp Learner (does coordinate-wise updates ala adagrad'''
-    def __init__(self, k_inv=1.0, log_scaling=False, momentum=False, set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRexDiag'):
+    def __init__(self, k_inv=1.0/np.sqrt(5), log_scaling=False, momentum=False, set_scaling=None, epsilon=1e-6, use_locking=False, name='FreeRexDiag'):
         '''
         constructs a new freerex optimizer
         '''
