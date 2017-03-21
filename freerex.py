@@ -94,14 +94,14 @@ class FreeRexDiag(Optimizer):
         else:
             log_scaling_update = log_scaling
 
-        absolute_regret_update = absolute_regret + tf.abs(offset*grad)
+        absolute_regret_update = absolute_regret + offset*tf.abs(grad)
         grad_norm_sum_update = grad_norm_sum + tf.abs(grad)
 
         scalings_update = tf.minimum(scalings, max_grad_norm_update/tf.reduce_sum(L_update))
 
         offset_update = -tf.sign(gradients_sum_update) * log_scaling_update * scalings_update\
             * (tf.exp(tf.rsqrt(inverse_eta_squared_update) * self._k_inv
-            * tf.abs(gradients_sum_update)) - 1.0)
+            * tf.abs(gradients_sum_update)) - 1.0) + absolute_regret_update/grad_norm_sum_update
 
         var_update = var + offset_update - offset
 
