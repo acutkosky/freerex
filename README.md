@@ -1,11 +1,11 @@
 # freerex
-very adaptive optimizers in tensorflow
+very adaptive optimizers in tensorflow based on <a href=http://proceedings.mlr.press/v65/cutkosky17a.html>this paper</a>.
 
 Three optimizers that provably achieve optimal convergence rates with no prior information about the data.
 
-`FreeRexDiag` is a coordinate-wise optimizer (this is probably the best default algorithm)
+`FreeRexDiag` is a coordinate-wise optimizer (this is probably the best default algorithm).
 
-`FreeRexSphere` uses an L2 update for dimension-independence (good for high-dimensional problems)
+`FreeRexSphere` uses an L2 update for dimension-independence (good for high-dimensional problems).
 
 `FreeRexLayerWise` is an intermediate between the above two that might be computationally faster than FreeRexSphere.
 
